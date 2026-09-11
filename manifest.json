@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Chess.com Post-Game Analyzer",
+  "version": "0.1.0",
+  "description": "Analyze your chess.com game with a client-side Stockfish engine after it ends. No live-game assistance.",
+  "permissions": [],
+  "host_permissions": [
+    "https://www.chess.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.chess.com/play/*",
+        "https://www.chess.com/game/*"
+      ],
+      "js": ["content/game-over-detector.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
