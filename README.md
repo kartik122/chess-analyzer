@@ -25,8 +25,17 @@ raw DOM research this is built on.
 
 ## Current status
 
-Step 1-2 of the build only: the content script detects game-over and logs the
-scraped SAN move list to the console. No chess.js, no engine, no UI yet.
+- Move-list scraping, chess.js replay (FEN + PGN), the on-page "Analyze Game"
+  panel, and arrow-key ply navigation are all working end-to-end against real
+  games.
+- Stockfish is vendored (`vendor/stockfish.js` + `vendor/stockfish.wasm`,
+  the single-threaded "lite" WASM build) and verified standalone (full UCI
+  handshake, MultiPV output) — see "Vendoring Stockfish" below. It's wired
+  into `analyzePosition()` in the content script but not yet exercised
+  end-to-end through the actual "Analyze Game" button on a live chess.com
+  game — that's the next thing to test.
+- Still missing: `chessground` board rendering and the green/yellow arrow
+  overlay (currently the panel shows position data as plain text).
 
 ## Try it now
 
@@ -38,18 +47,51 @@ scraped SAN move list to the console. No chess.js, no engine, no UI yet.
    - `[chess-analyzer] content script loaded, watching for game end`
    - `[chess-analyzer] Game over detected {...}`
    - `[chess-analyzer] Scraped SAN moves: [...]`
+   - `[chess-analyzer] Built FEN list: [...]` and `Built PGN: ...`
+6. A small "Chess Analyzer" panel appears top-right. Click "Analyze Game",
+   then use ← → to step through the game.
 
 > Note: this repo's automated browser tooling can't load unpacked extensions,
 > so testing has to happen in your own Chrome via the steps above.
+
+## Vendoring Stockfish
+
+`vendor/stockfish.js` + `vendor/stockfish.wasm` came from the `stockfish`
+npm package (v19.0.0), specifically the `stockfish-19-lite-single` build:
+
+- **single-threaded** — avoids the `SharedArrayBuffer` requirement that
+  multi-threaded WASM builds need, which in turn needs
+  `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` response headers
+  on the page. chess.com doesn't send those, and we can't add them since we
+  don't control chess.com's server — so a multi-threaded build simply
+  wouldn't load there.
+- **"lite"** — a smaller NNUE evaluation network, trading a little playing
+  strength for a much smaller download (~1.8MB `.wasm` vs. ~99MB for the
+  full-strength single-threaded build).
+
+The two files must share the same basename — the glue script derives its own
+`.wasm` URL by taking its own script location and replacing `.js` with
+`.wasm`, so both were renamed to `stockfish.js` / `stockfish.wasm` on copy.
+Verified standalone (outside the extension, via a local static server) with
+a raw UCI handshake and a `MultiPV 3` search before wiring it in — confirmed
+`uciok`/`readyok`, real `info depth ... multipv N ... pv ...` lines, and a
+final `bestmove` line, matching exactly what `analyzePosition()` in
+`content/game-over-detector.js` expects.
+
+`vendor/STOCKFISH-LICENSE.txt` is Stockfish's GPLv3 license text, copied
+alongside the binary — see the License section below.
 
 ## Roadmap
 
 - [x] Manifest + content script scaffold
 - [x] Game-over detection via `.game-over-modal-header-component`
-- [x] One-shot SAN move-list scrape
-- [ ] Vendor `chess.js`, rebuild FEN/PGN from the SAN list
-- [ ] Inject "Analyze Game" button + results panel UI
-- [ ] Vendor Stockfish WASM build, run it in a Web Worker with MultiPV
+- [x] SAN move-list scrape (including correctly reading piece letters from
+      chess.com's icon-glyph `data-figurine` attribute, not just text)
+- [x] Vendor `chess.js`, rebuild FEN/PGN from the SAN list
+- [x] Inject "Analyze Game" button + results panel UI
+- [x] Arrow-key ply navigation
+- [x] Vendor Stockfish WASM build (verified standalone with MultiPV)
+- [ ] Exercise Stockfish end-to-end through the real "Analyze Game" button
 - [ ] Vendor `chessground`, render board + arrow-key move navigation
 - [ ] Draw green/yellow arrows from the top-2 engine lines per ply
 - [ ] Verify `game-over-modal-header-*` result-suffix values for checkmate/draw/timeout (currently only confirmed for the resign/abort case — see Open Questions in DOM-NOTES.md)
@@ -69,4 +111,11 @@ scraped SAN move list to the console. No chess.js, no engine, no UI yet.
 
 ## License
 
-MIT (or your choice — this is your project, update this section).
+MIT for this project's own code (or your choice — update this section).
+
+Note: Stockfish itself is licensed **GPLv3** (`vendor/STOCKFISH-LICENSE.txt`).
+That's a copyleft license — since you're distributing its compiled WASM
+binary as part of this extension, keep its license text included (already
+done) and keep the extension itself open source, to stay compliant. This
+doesn't affect chess.js (MIT) or your own code, only the Stockfish component
+specifically.
