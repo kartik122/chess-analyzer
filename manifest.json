@@ -3,7 +3,7 @@
   "name": "Chess.com Post-Game Analyzer",
   "version": "0.1.0",
   "description": "Analyze your chess.com game with a client-side Stockfish engine after it ends. No live-game assistance.",
-  "permissions": [],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.chess.com/*"
   ],
@@ -16,7 +16,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["vendor/*"],
+      "resources": ["vendor/*", "analysis.html"],
       "matches": ["https://www.chess.com/*"]
     }
   ],

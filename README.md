@@ -7,35 +7,61 @@ suggestions, to stay clear of chess.com's fair-play rules.
 Built as a learning project. See [`docs/DOM-NOTES.md`](docs/DOM-NOTES.md) for the
 raw DOM research this is built on.
 
-## How it works (planned end state)
+## How it works
 
-1. Content script sits idle on `chess.com/play/*` and `chess.com/game/*` pages.
-2. A `MutationObserver` watches for chess.com's own game-over modal to appear.
-3. Once the game ends, the full move list is scraped in one pass (SAN moves)
-   and replayed through [`chess.js`](https://github.com/jhlywa/chess.js) to
-   reconstruct every position (FEN per ply) and produce a real PGN.
-4. An "Analyze Game" button appears. Clicking it starts
-   [Stockfish](https://github.com/official-stockfish/Stockfish) (compiled to
-   WASM) in a Web Worker, run with `MultiPV` so we get the top few lines per
-   position, not just the single best move.
-5. A [`chessground`](https://github.com/lichess-org/chessground) board (the
-   same open-source board lichess uses) renders the game. Arrow keys step
-   through the move list; the best move is drawn as a green arrow, the
-   second-best as a lighter/yellow arrow.
+1. **Content script** (`content/game-over-detector.js`) sits idle on
+   `chess.com/*` pages. A `MutationObserver` watches for chess.com's own
+   game-over modal to appear.
+2. Once the game ends, the full move list is scraped in one pass (SAN moves,
+   reading the real piece letter out of chess.com's icon-glyph
+   `data-figurine` attribute rather than assuming plain text) and replayed
+   through [`chess.js`](https://github.com/jhlywa/chess.js) to reconstruct
+   every position (FEN per ply) and produce a real PGN.
+3. A small notification appears with an "Open Full Analysis" button. Clicking
+   it saves the game (`plies`/`pgn`/`result`) to `chrome.storage.local` and
+   opens **`analysis.html`** — a full page bundled in the extension, not an
+   overlay injected into chess.com's own DOM — in a new tab.
+4. `analysis.js` reads the saved game, builds a **move tree** (a rooted tree
+   with parent pointers -- not literally "undirected": a move is inherently
+   directional, one position to a specific next one, but you *can* walk it
+   both ways via each node's `parent` reference), and renders the current
+   node's position on a [`chessground`](https://github.com/lichess-org/chessground)
+   board (the same open-source board lichess uses).
+5. [Stockfish](https://github.com/official-stockfish/Stockfish) (compiled to
+   WASM) runs in a Web Worker with `MultiPV 3`, so every node gets the top 3
+   lines, not just the single best move -- drawn directly on the board as
+   green/yellow/blue arrows via chessground's `setAutoShapes`. Results are
+   cached **on the tree node itself**, so revisiting an already-analyzed
+   position is instant, no re-running the engine.
+6. Arrow keys (or the tree sidebar, or the `|< < > >|` buttons) walk the tree
+   via parent/child pointers. Dragging a piece on the board plays a new move
+   (validated through chess.js) from whichever node is current -- if that
+   exact move already exists as a child, you're just retracing a line you've
+   seen; if not, a brand-new child node (a variation/branch) is created.
 
 ## Current status
 
-- Move-list scraping, chess.js replay (FEN + PGN), the on-page "Analyze Game"
-  panel, and arrow-key ply navigation are all working end-to-end against real
-  games.
-- Stockfish is vendored (`vendor/stockfish.js` + `vendor/stockfish.wasm`,
-  the single-threaded "lite" WASM build) and verified standalone (full UCI
-  handshake, MultiPV output) — see "Vendoring Stockfish" below. It's wired
-  into `analyzePosition()` in the content script but not yet exercised
-  end-to-end through the actual "Analyze Game" button on a live chess.com
-  game — that's the next thing to test.
-- Still missing: `chessground` board rendering and the green/yellow arrow
-  overlay (currently the panel shows position data as plain text).
+Fully wired end-to-end and verified (via a local test harness that mocks the
+one `chrome.storage.local` call, so the real shipped `analysis.js` could run
+standalone): move scraping, chess.js replay, the tree data structure,
+chessground rendering, arrow-key/tree navigation, and Stockfish analysis with
+per-node caching. Two real bugs were caught and fixed during that testing:
+
+- The boot code was defaulting to the tree's **root** (starting position)
+  instead of walking to the end of the main line, so the board opened on
+  move 0 instead of the final position.
+- Rapid navigation (e.g. holding an arrow key) could fire a new Stockfish
+  search before the previous one finished. Since Stockfish only searches one
+  position at a time, an overlapping request's listener could pick up
+  `info`/`bestmove` lines that actually belonged to the older, still-running
+  search -- producing nonsensical analysis for the wrong position. Fixed by
+  serializing searches: a new request while one is active sends `stop` and
+  queues itself, only actually starting once the engine's own `bestmove`
+  confirms it's idle again.
+
+Not yet built: promotion-choice UI (pawn promotions currently auto-queen),
+and this hasn't yet been exercised inside a *real* loaded extension against
+a live chess.com game -- only against the test harness.
 
 ## Try it now
 
@@ -48,8 +74,10 @@ raw DOM research this is built on.
    - `[chess-analyzer] Game over detected {...}`
    - `[chess-analyzer] Scraped SAN moves: [...]`
    - `[chess-analyzer] Built FEN list: [...]` and `Built PGN: ...`
-6. A small "Chess Analyzer" panel appears top-right. Click "Analyze Game",
-   then use ← → to step through the game.
+6. A small "Chess Analyzer" panel appears top-right. Click "Open Full
+   Analysis" — a new tab opens with the board, engine lines, and move tree.
+   Use ← → (or click a move in the tree, or drag a piece to branch) to
+   navigate.
 
 > Note: this repo's automated browser tooling can't load unpacked extensions,
 > so testing has to happen in your own Chrome via the steps above.
@@ -81,6 +109,25 @@ final `bestmove` line, matching exactly what `analyzePosition()` in
 `vendor/STOCKFISH-LICENSE.txt` is Stockfish's GPLv3 license text, copied
 alongside the binary — see the License section below.
 
+## Vendoring chessground
+
+`vendor/chessground/` came from the `chessground` npm package (v9.2.1):
+
+- `chessground.js` — copied from the package's `dist/chessground.min.js`, a
+  single self-contained ESM bundle (no build step needed, unlike chess.js;
+  confirmed it has no external `import`s, only `export { Chessground,
+  initModule }`).
+- `chessground.base.css` — core board/piece layout structure (required).
+- `chessground.brown.css` — a board color theme (square colors).
+- `chessground.cburnett.css` — a piece theme; the classic lichess default
+  set. The actual piece artwork is embedded as base64-encoded SVG `url(...)`
+  data directly inside this CSS file, so there are no separate image files
+  to vendor.
+
+chessground is also GPL-3.0-or-later (same license family as Stockfish —
+both are part of the lichess/Stockfish open-source ecosystem) — see the
+License section.
+
 ## Roadmap
 
 - [x] Manifest + content script scaffold
@@ -88,12 +135,18 @@ alongside the binary — see the License section below.
 - [x] SAN move-list scrape (including correctly reading piece letters from
       chess.com's icon-glyph `data-figurine` attribute, not just text)
 - [x] Vendor `chess.js`, rebuild FEN/PGN from the SAN list
-- [x] Inject "Analyze Game" button + results panel UI
-- [x] Arrow-key ply navigation
 - [x] Vendor Stockfish WASM build (verified standalone with MultiPV)
-- [ ] Exercise Stockfish end-to-end through the real "Analyze Game" button
-- [ ] Vendor `chessground`, render board + arrow-key move navigation
-- [ ] Draw green/yellow arrows from the top-2 engine lines per ply
+- [x] Vendor `chessground`
+- [x] Dedicated `analysis.html` page (opened in a new tab) instead of an
+      in-page overlay
+- [x] Move tree (rooted, parent-pointer) data structure with branching
+- [x] Board + arrow-key/tree-click navigation, wired to the tree
+- [x] Stockfish analysis per node, with per-node result caching
+- [x] Green/yellow/blue arrows on the board from the top-3 engine lines
+- [x] Move input on the board (drag a piece to create/follow a branch)
+- [ ] Promotion-choice UI (currently auto-queens)
+- [ ] Exercise the whole flow inside a real loaded extension against a live
+      chess.com game (verified so far only via a local test harness)
 - [ ] Verify `game-over-modal-header-*` result-suffix values for checkmate/draw/timeout (currently only confirmed for the resign/abort case — see Open Questions in DOM-NOTES.md)
 - [ ] Verify the same selectors hold on a real `chess.com/game/live/...` page, not just `play/computer`
 
@@ -113,9 +166,10 @@ alongside the binary — see the License section below.
 
 MIT for this project's own code (or your choice — update this section).
 
-Note: Stockfish itself is licensed **GPLv3** (`vendor/STOCKFISH-LICENSE.txt`).
-That's a copyleft license — since you're distributing its compiled WASM
-binary as part of this extension, keep its license text included (already
-done) and keep the extension itself open source, to stay compliant. This
-doesn't affect chess.js (MIT) or your own code, only the Stockfish component
-specifically.
+Note: Stockfish and chessground are both licensed **GPLv3**
+(`vendor/STOCKFISH-LICENSE.txt`; chessground doesn't ship a bundled license
+file in its npm package, but its `package.json` declares
+`GPL-3.0-or-later`). That's a copyleft license — since you're distributing
+their compiled/bundled code as part of this extension, keep the extension
+itself open source to stay compliant. This doesn't affect chess.js (MIT) or
+your own code, only these two components specifically.
