@@ -1,0 +1,101 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 300px;
+  background: #202020;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+  position: relative;
+}
+
+#close-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: #999;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+#close-btn:hover {
+  background: #333;
+  color: #fff;
+}
+
+#content {
+  padding: 22px 18px 18px;
+}
+
+.badge {
+  display: inline-block;
+  background: #e8b923;
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+
+#content h1 {
+  font-size: 16px;
+  margin: 0 0 6px;
+  line-height: 1.3;
+}
+
+#content p {
+  font-size: 13px;
+  opacity: 0.75;
+  line-height: 1.45;
+  margin: 0 0 16px;
+}
+
+.knight-icon {
+  font-size: 34px;
+  line-height: 1;
+  margin-bottom: 10px;
+  opacity: 0.6;
+}
+
+button.primary,
+button.secondary {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.primary {
+  background: #e8b923;
+  color: #1a1a1a;
+}
+
+button.primary:hover {
+  background: #f2c744;
+}
+
+button.secondary {
+  background: #333;
+  color: #eee;
+  margin-top: 8px;
+}
+
+button.secondary:hover {
+  background: #3f3f3f;
+}

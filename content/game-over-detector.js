@@ -46,47 +46,6 @@
 		};
 	}
 
-	function showOpenAnalysisPrompt(result, pgn, plies) {
-		let panel = document.getElementById("chess-analyzer-panel");
-		if (!panel) {
-			panel = document.createElement("div");
-			panel.id = "chess-analyzer-panel";
-			panel.style.cssText = [
-				"position: fixed",
-				"top: 16px",
-				"right: 16px",
-				"z-index: 999999",
-				"width: 240px",
-				"background: #1e1e1e",
-				"color: #eee",
-				"font-family: system-ui, sans-serif",
-				"font-size: 13px",
-				"border-radius: 8px",
-				"box-shadow: 0 4px 16px rgba(0,0,0,0.5)",
-				"padding: 12px",
-			].join(";");
-			document.body.appendChild(panel);
-		}
-
-		panel.innerHTML = `
-			<div style="font-weight:bold; margin-bottom:6px;">Chess Analyzer</div>
-			<div style="margin-bottom:8px; opacity:0.8;">
-				${result && result.title ? result.title : "Game over"}
-				${result && result.subtitle ? " — " + result.subtitle : ""}
-			</div>
-			<button id="chess-analyzer-open-btn" style="width:100%; padding:6px; cursor:pointer;">
-				Open Full Analysis
-			</button>
-		`;
-
-		panel.querySelector("#chess-analyzer-open-btn").addEventListener("click", () => {
-			chrome.storage.local.set(
-				{ lastGame: { plies, pgn, result, savedAt: Date.now() } },
-				() => window.open(chrome.runtime.getURL("analysis.html"), "_blank")
-			);
-		});
-	}
-
 	// --- Replay + game-over detection --------------------------------------
 
 	function onGameOver() {
@@ -114,7 +73,8 @@
 		console.log("[chess-analyzer] Built FEN list:", plies);
 		console.log("[chess-analyzer] Built PGN:", pgn);
 
-		showOpenAnalysisPrompt(result, pgn, plies);
+		chrome.storage.local.set({ lastGame: { plies, pgn, result, savedAt: Date.now() } });
+		chrome.runtime.sendMessage({ type: "chess-analyzer:game-over", result });
 	}
 
 	const { Chess } = await import(chrome.runtime.getURL("vendor/chess.js"));
@@ -126,8 +86,9 @@
 				gameOverHandled = true;
 				onGameOver();
 			}
-		} else {
+		} else if (gameOverHandled) {
 			gameOverHandled = false;
+			chrome.runtime.sendMessage({ type: "chess-analyzer:game-active" });
 		}
 	});
 

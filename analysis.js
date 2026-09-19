@@ -235,16 +235,40 @@ function normalizeScore(infoLine, fen) {
 	const mateMatch = infoLine.match(/score mate (-?\d+)/);
 	if (mateMatch) {
 		const mateIn = sign * parseInt(mateMatch[1], 10);
-		return { display: `${mateIn >= 0 ? "+" : "-"}M${Math.abs(mateIn)}`, favorsWhite: mateIn > 0 };
+		return {
+			display: `${mateIn >= 0 ? "+" : "-"}M${Math.abs(mateIn)}`,
+			favorsWhite: mateIn > 0,
+			whiteRelativeCp: null,
+			mateFor: mateIn > 0 ? "white" : "black",
+		};
 	}
 
 	const cpMatch = infoLine.match(/score cp (-?\d+)/);
 	if (cpMatch) {
-		const pawns = (sign * parseInt(cpMatch[1], 10)) / 100;
-		return { display: `${pawns >= 0 ? "+" : ""}${pawns.toFixed(2)}`, favorsWhite: pawns >= 0 };
+		const whiteRelativeCp = sign * parseInt(cpMatch[1], 10);
+		const pawns = whiteRelativeCp / 100;
+		return {
+			display: `${pawns >= 0 ? "+" : ""}${pawns.toFixed(2)}`,
+			favorsWhite: pawns >= 0,
+			whiteRelativeCp,
+			mateFor: null,
+		};
 	}
 
-	return { display: "?", favorsWhite: null };
+	return { display: "?", favorsWhite: null, whiteRelativeCp: null, mateFor: null };
+}
+
+function winPercentFromScore(score) {
+	if (score.mateFor === "white") return 99;
+	if (score.mateFor === "black") return 1;
+	if (score.whiteRelativeCp == null) return 50;
+	return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * score.whiteRelativeCp)) - 1);
+}
+
+function setEvalBar(winPercent) {
+	const fill = document.getElementById("eval-bar-fill");
+	if (!fill) return;
+	fill.style.height = `${Math.max(1, Math.min(99, winPercent))}%`;
 }
 
 const RANK_LABELS = ["Best", "2nd best", "3rd best"];
@@ -256,8 +280,11 @@ function renderEngineLines(lines, fen) {
 
 	if (!lines.length) {
 		engineDiv.textContent = "No lines returned";
+		setEvalBar(50);
 		return;
 	}
+
+	setEvalBar(winPercentFromScore(normalizeScore(lines[0], fen)));
 
 	engineDiv.innerHTML = "";
 	lines.forEach((line, i) => {
@@ -309,9 +336,10 @@ async function analyzeCurrentNode() {
 	}
 
 	engineDiv.textContent = "Analyzing…";
+	setEvalBar(50);
 	try {
 		const lines = await analyzePosition(node.fen);
-		if (node !== currentNode) return; // navigated away while the engine was thinking
+		if (node !== currentNode) return; 
 		node.engineLines = lines;
 		renderEngineLines(lines, node.fen);
 	} catch (err) {

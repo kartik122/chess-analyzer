@@ -17,10 +17,18 @@ raw DOM research this is built on.
    `data-figurine` attribute rather than assuming plain text) and replayed
    through [`chess.js`](https://github.com/jhlywa/chess.js) to reconstruct
    every position (FEN per ply) and produce a real PGN.
-3. A small notification appears with an "Open Full Analysis" button. Clicking
-   it saves the game (`plies`/`pgn`/`result`) to `chrome.storage.local` and
-   opens **`analysis.html`** — a full page bundled in the extension, not an
-   overlay injected into chess.com's own DOM — in a new tab.
+3. The game is saved to `chrome.storage.local` immediately, and a message
+   goes to **`background.js`**, a service worker, which is the only place
+   that can turn the toolbar icon gold (`chrome.action` isn't available to
+   content scripts at all). The toolbar's **popup** (`popup.html`) is the
+   only "a game is ready" UI (an earlier on-page floating panel duplicated
+   this and was removed) — its "Analyze Game" button opens **`analysis.html`**
+   — a full page bundled in the extension, not an overlay injected into
+   chess.com's own DOM — in a new tab. When a new game starts, the content
+   script tells the background worker to turn the icon back to gray -- but
+   the *data* in storage isn't touched until the next game actually
+   finishes, so the popup can still offer "view last analyzed game" in the
+   meantime.
 4. `analysis.js` reads the saved game, builds a **move tree** (a rooted tree
    with parent pointers -- not literally "undirected": a move is inherently
    directional, one position to a specific next one, but you *can* walk it
@@ -128,6 +136,39 @@ chessground is also GPL-3.0-or-later (same license family as Stockfish —
 both are part of the lichess/Stockfish open-source ecosystem) — see the
 License section.
 
+## Toolbar icon + popup
+
+- `icons/icon-gray.svg` / `icons/icon-gold.svg` are the source vectors; the
+  actual knight silhouette paths are lifted from chessground's own vendored
+  `cburnett` piece set (`vendor/chessground/chessground.cburnett.css`, base64
+  SVG for `piece.knight.black`) rather than hand-drawn, since we already had
+  rights to that artwork locally and it's higher quality than anything drawn
+  from scratch. Rasterized to 16/32/48/128px PNGs (`icons/icon-{gray,gold}-*.png`)
+  with `sharp`, since no SVG rasterizer (ImageMagick, rsvg-convert, Inkscape)
+  was available as a system command on this machine — `convert` on Windows
+  resolves to the OS's disk-conversion utility, not ImageMagick.
+- `manifest.json`'s `action.default_icon` and top-level `icons` both start
+  pointing at the gray set; `background.js` swaps to the gold set via
+  `chrome.action.setIcon()` on a `"chess-analyzer:game-over"` message, and
+  back to gray on `"chess-analyzer:game-active"` (sent from the content
+  script's `MutationObserver` on the falling edge -- header was showing, now
+  it's gone -- so it fires exactly once per new game, not on every unrelated
+  mutation while no modal is up).
+- `background.js` also mirrors the icon state into `chrome.storage.local` as
+  `readyToAnalyze`, since that's the only way `popup.html` (a separate page,
+  with no direct access to what the icon currently looks like) can know which
+  content to show.
+- `popup.js` reads `readyToAnalyze` + `lastGame` and renders one of two
+  states: a gold "Ready to analyze" card with the result and an "Analyze
+  Game" button, or a neutral "no game yet" card that still offers "View last
+  analyzed game" if `lastGame` exists from an earlier game. The popup's own
+  `×` button just calls `window.close()` -- clicking outside the popup or
+  pressing Escape already dismisses it natively, so this is purely an
+  explicit affordance for anyone who prefers clicking a visible close control.
+- Unlike the content script, `popup.html` is a full extension page, so
+  `popup.js` can call `chrome.tabs.create()` directly -- no `window.open`
+  workaround needed there.
+
 ## Roadmap
 
 - [x] Manifest + content script scaffold
@@ -144,6 +185,12 @@ License section.
 - [x] Stockfish analysis per node, with per-node result caching
 - [x] Green/yellow/blue arrows on the board from the top-3 engine lines
 - [x] Move input on the board (drag a piece to create/follow a branch)
+- [x] Toolbar icon (knight) that turns gray→gold on game completion, via a
+      background service worker
+- [x] Popup UI reflecting ready/idle state, with a close button (on-page
+      floating panel removed as redundant with it)
+- [x] Evaluation bar (chess.com/lichess-style win-probability bar) next to
+      the board, driven by the best line's score
 - [ ] Promotion-choice UI (currently auto-queens)
 - [ ] Exercise the whole flow inside a real loaded extension against a live
       chess.com game (verified so far only via a local test harness)
